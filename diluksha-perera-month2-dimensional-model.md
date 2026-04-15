@@ -80,6 +80,9 @@ The analytical warehouse solves these problems by implementing a **star schema**
                    │  snapshot_date     │
                    └────────────────────┘
 ```
+ ### Visual Diagram
+
+![alt text](retailco-star-schema-1.png)
 
 ---
 
