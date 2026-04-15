@@ -368,3 +368,61 @@ SELECT
     ROUND(SUM(net_revenue), 2)      AS total_revenue,
     ROUND(SUM(gross_profit), 2)     AS total_profit
 FROM warehouse.fact_sales;
+
+
+-- ============================================================
+-- STEP 7: LOAD fact_inventory_snapshot
+-- Grain: one row per product per store per day
+-- snapshot_date = CURRENT_DATE at load time
+-- date_key derived from CURRENT_DATE in YYYYMMDD format
+-- Joins staging.inventory to dim_product and dim_store
+--   using is_current=TRUE to get correct surrogate keys
+-- UNIQUE constraint on (product_key, store_key, date_key)
+--   enforces grain — prevents duplicate snapshots per day
+-- Source: staging.inventory
+-- Expected rows: 11
+-- ============================================================
+
+INSERT INTO warehouse.fact_inventory_snapshot (
+    product_key,
+    store_key,
+    date_key,
+    qty_on_hand,
+    reorder_point,
+    last_restock_date,
+    snapshot_date
+)
+SELECT
+    dp.product_key,
+    ds.store_key,
+    TO_CHAR(CURRENT_DATE, 'YYYYMMDD')::INTEGER  AS date_key,
+    i.quantity_on_hand                           AS qty_on_hand,
+    i.reorder_point,
+    i.last_restock_date,
+    CURRENT_DATE                                 AS snapshot_date
+FROM staging.inventory i
+INNER JOIN warehouse.dim_product dp
+    ON i.product_id = dp.product_id
+    AND dp.is_current = TRUE
+INNER JOIN warehouse.dim_store ds
+    ON i.store_id = ds.store_id;
+
+-- Verify: Expected 11 rows
+SELECT COUNT(*) AS fact_inventory_snapshot_rows
+FROM warehouse.fact_inventory_snapshot;
+
+-- Sanity check
+SELECT
+    ds.store_name,
+    dp.product_name,
+    f.qty_on_hand,
+    f.reorder_point,
+    f.last_restock_date,
+    f.snapshot_date
+FROM warehouse.fact_inventory_snapshot f
+JOIN warehouse.dim_product dp
+    ON f.product_key = dp.product_key
+    AND dp.is_current = TRUE
+JOIN warehouse.dim_store ds
+    ON f.store_key = ds.store_key
+ORDER BY ds.store_name, dp.product_name;

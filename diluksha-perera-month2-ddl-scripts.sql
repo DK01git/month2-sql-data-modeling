@@ -1,4 +1,3 @@
-
 -- ============================================================
 -- SECTION 1: SCHEMAS
 -- ============================================================
@@ -11,8 +10,7 @@ CREATE SCHEMA IF NOT EXISTS staging;
 -- SECTION 2: OLTP SOURCE TABLES (public schema)
 -- These represent the operational source system
 -- Load order respects FK dependencies:
--- suppliers → products → customers → stores →
--- promotions → orders → order_items → inventory
+-- suppliers > products > customers > stores > promotions > orders > order_items > inventory
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS public.suppliers (
@@ -185,8 +183,7 @@ CREATE TABLE IF NOT EXISTS staging.inventory (
 -- SECTION 4: WAREHOUSE DIMENSIONAL MODEL (warehouse schema)
 -- Star schema following Kimball methodology
 -- Table creation order respects FK dependencies:
--- dim_date → dim_customer → dim_product →
--- dim_store → dim_promotion → fact_sales
+-- dim_date > dim_customer > dim_product > dim_store > dim_promotion > fact_sales
 -- ============================================================
 
 -- Date Dimension
@@ -319,6 +316,33 @@ CREATE INDEX ix_fact_sales_product  ON warehouse.fact_sales(product_key);
 CREATE INDEX ix_fact_sales_store    ON warehouse.fact_sales(store_key);
 
 
+-- Fact Inventory Snapshot Table
+-- Grain: one row per product per store per day
+-- Captures daily stock levels across all store/product combinations
+-- Unique constraint enforces grain at database level
+-- snapshot_date = CURRENT_DATE at load time (set in load script)
+CREATE TABLE IF NOT EXISTS warehouse.fact_inventory_snapshot (
+    inventory_snapshot_key  BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    product_key             INTEGER NOT NULL
+                                REFERENCES warehouse.dim_product(product_key),
+    store_key               INTEGER NOT NULL
+                                REFERENCES warehouse.dim_store(store_key),
+    date_key                INTEGER NOT NULL
+                                REFERENCES warehouse.dim_date(date_key),
+    qty_on_hand             INTEGER NOT NULL,
+    reorder_point           INTEGER,
+    last_restock_date       DATE,
+    snapshot_date           DATE NOT NULL,
+    CONSTRAINT uq_fact_inventory_snapshot_grain
+        UNIQUE (product_key, store_key, date_key)
+);
+
+-- Indexes on fact_inventory_snapshot foreign keys
+CREATE INDEX ix_fact_inv_date    ON warehouse.fact_inventory_snapshot(date_key);
+CREATE INDEX ix_fact_inv_product ON warehouse.fact_inventory_snapshot(product_key);
+CREATE INDEX ix_fact_inv_store   ON warehouse.fact_inventory_snapshot(store_key);
+
+
 -- ============================================================
 -- VERIFICATION QUERIES
 -- Run after executing all DDL to confirm structure
@@ -334,4 +358,10 @@ ORDER BY table_schema, table_name;
 SELECT indexname, indexdef
 FROM pg_indexes
 WHERE tablename = 'fact_sales'
+AND schemaname = 'warehouse';
+
+-- Confirm indexes on fact_inventory_snapshot
+SELECT indexname, indexdef
+FROM pg_indexes
+WHERE tablename = 'fact_inventory_snapshot'
 AND schemaname = 'warehouse';
